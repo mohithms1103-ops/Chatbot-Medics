@@ -402,7 +402,7 @@ def setup_sidebar() -> Dict[str, Any]:
 
 def instructions_page():
     """Instructions and setup page"""
-    st.title("🏥 Medical Voice Assistant - Setup Guide")
+    st.title("🏥 Medical Chatbot - Setup Guide")
     st.markdown("### AI-Powered Medical Consultation with Voice, RAG, and Web Search")
     
     # Cloud deployment notice
@@ -784,4 +784,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
