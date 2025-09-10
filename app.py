@@ -225,7 +225,7 @@ class MedicalChatbot:
 def setup_page_config():
     """Setup Streamlit page configuration"""
     st.set_page_config(
-        page_title="Medical Voice Assistant",
+        page_title="Medical Assistant",
         page_icon="🏥",
         layout="wide",
         initial_sidebar_state="expanded"
@@ -784,3 +784,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
