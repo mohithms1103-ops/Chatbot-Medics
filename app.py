@@ -645,7 +645,7 @@ def instructions_page():
 
 def chat_page():
     """Main medical chat interface"""
-    st.title("🏥 Medical Voice Assistant")
+    st.title("🏥 Medical Chatbot")
     
     # Setup sidebar and get configuration
     config_dict = setup_sidebar()
@@ -784,5 +784,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
