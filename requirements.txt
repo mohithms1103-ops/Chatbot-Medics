@@ -1,0 +1,72 @@
+# Core Streamlit and UI
+streamlit>=1.28.0
+streamlit-chat>=0.1.1
+
+# LLM and AI Models
+groq>=0.4.1
+openai>=1.3.0
+google-generativeai>=0.3.0
+
+# RAG and Embeddings
+sentence-transformers>=2.2.2
+scikit-learn>=1.3.0
+numpy>=1.24.0
+faiss-cpu>=1.7.4  # Optional: for faster similarity search
+
+# Document Processing
+PyPDF2>=3.0.1
+python-docx>=0.8.11
+python-pptx>=0.6.21  # Optional: for PowerPoint support
+
+# Voice Processing
+SpeechRecognition>=3.10.0
+pyttsx3>=2.90
+pyaudio  # Required for microphone input
+
+# Web Search and HTTP
+requests>=2.31.0
+beautifulsoup4>=4.12.2  # Optional: for web scraping
+aiohttp>=3.8.5  # Optional: for async requests
+
+# Data Processing and Storage
+pandas>=2.0.0
+pickle-mixin>=1.0.2  # Enhanced pickle support
+
+# Utilities and Helpers
+python-dotenv>=1.0.0  # For environment variables
+regex>=2023.8.8
+tqdm>=4.66.0  # Progress bars
+
+# Optional: Advanced Features
+chromadb>=0.4.0  # Alternative vector database
+langchain>=0.1.0  # Optional: for advanced RAG
+pypdf>=3.17.0  # Alternative PDF processor
+markdown>=3.5.0  # For markdown processing
+
+# Audio Processing (Optional)
+librosa>=0.10.1  # Advanced audio processing
+soundfile>=0.12.1  # Audio file I/O
+
+# Development and Testing (Optional)
+pytest>=7.4.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Platform-specific dependencies
+# For Windows users:
+# pywin32>=306  # Windows-specific TTS support
+
+# For macOS users:
+# pyobjc>=9.2  # macOS-specific TTS support
+
+# Note: Some packages may require additional system dependencies:
+# 
+# For Ubuntu/Debian:
+# sudo apt-get install portaudio19-dev python3-pyaudio
+# sudo apt-get install espeak espeak-data libespeak-dev ffmpeg
+#
+# For macOS:
+# brew install portaudio
+# 
+# For Windows:
+# Most packages should work out of the box with pip install
