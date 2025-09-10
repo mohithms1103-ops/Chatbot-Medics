@@ -2,40 +2,104 @@ import streamlit as st # type: ignore
 import os
 from typing import List, Dict, Any
 from datetime import datetime
+import logging
 
-# Import custom modules
-from config.config import config
-from models.llm import llm_manager
-from models.embeddings import VectorDatabase, RAGRetriever, EmbeddingModel
-from utils import (
-    DocumentProcessor, TextChunker, WebSearcher, VoiceAssistant,
-    ResponseFormatter, SessionManager, FileHandler
-)
+# Force CPU usage for Streamlit Cloud
+os.environ["CUDA_VISIBLE_DEVICES"] = ""
+
+# Import custom modules with error handling
+try:
+    from config.config import config
+    from models.llm import llm_manager
+    from models.embeddings import VectorDatabase, RAGRetriever, EmbeddingModel
+    from utils import (
+        DocumentProcessor, TextChunker, WebSearcher, VoiceAssistant,
+        ResponseFormatter, SessionManager, FileHandler
+    )
+except ImportError as e:
+    st.error(f"Import error: {e}")
+    st.error("Please ensure all required modules are available in your Streamlit Cloud deployment.")
+    st.stop()
 
 class MedicalChatbot:
     """Main medical chatbot class integrating all components"""
     
     def __init__(self):
-        self.rag_retriever = RAGRetriever()
-        self.web_searcher = WebSearcher()
-        self.voice_assistant = VoiceAssistant()
-        self.document_processor = DocumentProcessor()
-        self.text_chunker = TextChunker()
+        # Initialize components with error handling for Streamlit Cloud
+        try:
+            self.rag_retriever = RAGRetriever()
+        except Exception as e:
+            st.warning(f"RAG retriever initialization warning: {e}")
+            self.rag_retriever = None
+        
+        try:
+            self.web_searcher = WebSearcher()
+        except Exception as e:
+            st.warning(f"Web searcher initialization warning: {e}")
+            self.web_searcher = None
+        
+        # Voice Assistant - disable for Streamlit Cloud
+        try:
+            self.voice_assistant = VoiceAssistant()
+        except Exception as e:
+            st.info("Voice features disabled for cloud deployment")
+            # Create mock voice assistant for compatibility
+            self.voice_assistant = self._create_mock_voice_assistant()
+        
+        try:
+            self.document_processor = DocumentProcessor()
+        except Exception as e:
+            st.warning(f"Document processor initialization warning: {e}")
+            self.document_processor = None
+        
+        try:
+            self.text_chunker = TextChunker()
+        except Exception as e:
+            st.warning(f"Text chunker initialization warning: {e}")
+            self.text_chunker = None
+    
+    def _create_mock_voice_assistant(self):
+        """Create mock voice assistant for cloud deployment"""
+        class MockVoiceAssistant:
+            def is_available(self):
+                return False
+            def listen_once(self):
+                st.warning("Voice input not available in cloud deployment")
+                return None
+            def speak(self, text):
+                st.info(f"Would speak: {text[:100]}...")
+                return
+            def stop_speaking(self):
+                return True
+        
+        return MockVoiceAssistant()
         
     def initialize_rag_system(self, file_path: str = None) -> bool:
         """Initialize RAG system from file or load existing"""
-        # Try to load existing vector database
-        if self.rag_retriever.vector_db.load_from_file():
-            return True
-        
-        # If file provided, process it
-        if file_path and os.path.exists(file_path):
-            return self.process_document(file_path)
-        
-        return False
+        if not self.rag_retriever:
+            st.error("RAG retriever not available")
+            return False
+            
+        try:
+            # Try to load existing vector database
+            if self.rag_retriever.vector_db.load_from_file():
+                return True
+            
+            # If file provided, process it
+            if file_path and os.path.exists(file_path):
+                return self.process_document(file_path)
+            
+            return False
+        except Exception as e:
+            st.error(f"Error initializing RAG system: {e}")
+            return False
     
     def process_document(self, file_path: str) -> bool:
         """Process document and add to RAG system"""
+        if not all([self.document_processor, self.text_chunker, self.rag_retriever]):
+            st.error("Required components not available for document processing")
+            return False
+            
         try:
             # Extract text from document
             text = self.document_processor.extract_text(file_path)
@@ -68,39 +132,54 @@ class MedicalChatbot:
     def generate_medical_response(self, query: str, use_web_search: bool = False, response_mode: str = "detailed") -> str:
         """Generate comprehensive medical response"""
         
-        # Get RAG context
-        rag_context = self.rag_retriever.retrieve_context(query)
-        
-        # Get web search context if enabled
-        web_context = ""
-        if use_web_search and self.web_searcher.is_available():
-            web_context = self.web_searcher.search_medical(query)
-        
-        # Prepare system prompt
-        system_prompt = self._get_medical_system_prompt(response_mode)
-        
-        # Prepare user message with context
-        user_message = self._format_user_message(query, rag_context, web_context)
-        
-        # Generate response
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-        
-        # Get response parameters based on mode
-        response_config = config.RESPONSE_MODES.get(response_mode, config.RESPONSE_MODES["detailed"])
-        
-        response = llm_manager.generate_response(
-            messages,
-            provider=st.session_state.get('selected_provider', 'groq'),
-            **response_config
-        )
-        
-        # Format response based on mode
-        formatted_response = ResponseFormatter.format_medical_response(response, response_mode)
-        
-        return formatted_response
+        try:
+            # Get RAG context
+            rag_context = {"context": "No relevant context found in the knowledge base.", "sources": []}
+            if self.rag_retriever:
+                try:
+                    rag_context = self.rag_retriever.retrieve_context(query)
+                except Exception as e:
+                    st.warning(f"RAG context retrieval failed: {e}")
+            
+            # Get web search context if enabled
+            web_context = ""
+            if use_web_search and self.web_searcher and self.web_searcher.is_available():
+                try:
+                    web_context = self.web_searcher.search_medical(query)
+                except Exception as e:
+                    st.warning(f"Web search failed: {e}")
+                    web_context = "No recent web information found."
+            
+            # Prepare system prompt
+            system_prompt = self._get_medical_system_prompt(response_mode)
+            
+            # Prepare user message with context
+            user_message = self._format_user_message(query, rag_context, web_context)
+            
+            # Generate response
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message}
+            ]
+            
+            # Get response parameters based on mode
+            response_config = config.RESPONSE_MODES.get(response_mode, config.RESPONSE_MODES["detailed"])
+            
+            response = llm_manager.generate_response(
+                messages,
+                provider=st.session_state.get('selected_provider', 'groq'),
+                **response_config
+            )
+            
+            # Format response based on mode
+            formatted_response = ResponseFormatter.format_medical_response(response, response_mode)
+            
+            return formatted_response
+            
+        except Exception as e:
+            error_msg = f"Error generating response: {str(e)}"
+            logging.error(error_msg)
+            return f"I apologize, but I encountered an error while processing your request. Please try again or rephrase your question. Error: {str(e)}"
     
     def _get_medical_system_prompt(self, response_mode: str) -> str:
         """Get system prompt based on response mode"""
@@ -159,49 +238,59 @@ def setup_sidebar() -> Dict[str, Any]:
         
         # LLM Provider Selection
         st.subheader("🤖 AI Model")
-        available_providers = llm_manager.get_available_providers()
-        if available_providers:
-            selected_provider = st.selectbox(
-                "Select AI Provider",
-                available_providers,
-                index=0 if st.session_state.selected_provider not in available_providers else available_providers.index(st.session_state.selected_provider)
-            )
-            st.session_state.selected_provider = selected_provider
-        else:
-            st.error("❌ No AI providers available. Check your API keys.")
+        try:
+            available_providers = llm_manager.get_available_providers()
+            if available_providers:
+                selected_provider = st.selectbox(
+                    "Select AI Provider",
+                    available_providers,
+                    index=0 if st.session_state.selected_provider not in available_providers else available_providers.index(st.session_state.selected_provider)
+                )
+                st.session_state.selected_provider = selected_provider
+            else:
+                st.error("❌ No AI providers available. Check your API keys.")
+                st.session_state.selected_provider = None
+        except Exception as e:
+            st.error(f"Error loading AI providers: {e}")
             st.session_state.selected_provider = None
         
         # Response Mode
         st.subheader("📝 Response Mode")
-        response_mode = st.radio(
-            "Choose response style:",
-            options=list(config.RESPONSE_MODES.keys()),
-            index=0 if st.session_state.response_mode == "concise" else 1,
-            format_func=lambda x: f"{x.title()} - {config.RESPONSE_MODES[x]['description']}"
-        )
-        st.session_state.response_mode = response_mode
+        try:
+            response_mode = st.radio(
+                "Choose response style:",
+                options=list(config.RESPONSE_MODES.keys()),
+                index=0 if st.session_state.response_mode == "concise" else 1,
+                format_func=lambda x: f"{x.title()} - {config.RESPONSE_MODES[x]['description']}"
+            )
+            st.session_state.response_mode = response_mode
+        except Exception as e:
+            st.warning(f"Response mode configuration error: {e}")
+            st.session_state.response_mode = "detailed"
+            response_mode = "detailed"
         
-        # Voice Settings
+        # Voice Settings - Modified for cloud deployment
         st.subheader("🎤 Voice Assistant")
-        voice_enabled = st.checkbox(
-            "Enable Voice", 
-            value=st.session_state.voice_enabled,
-            disabled=not st.session_state.get('chatbot', None) or not st.session_state.chatbot.voice_assistant.is_available()
-        )
-        st.session_state.voice_enabled = voice_enabled
+        voice_available = (st.session_state.get('chatbot', None) and 
+                          st.session_state.chatbot.voice_assistant.is_available())
         
-        if voice_enabled:
-            col1, col2 = st.columns(2)
-            with col1:
-                if st.button("🔊 Test Voice"):
-                    st.session_state.chatbot.voice_assistant.speak("Voice assistant is working correctly!")
-            with col2:
-                if st.button("⏸️ Stop Voice"):
-                    st.session_state.chatbot.voice_assistant.stop_speaking()
+        if not voice_available:
+            st.info("Voice features are disabled in cloud deployment")
+            st.session_state.voice_enabled = False
+            voice_enabled = False
+        else:
+            voice_enabled = st.checkbox(
+                "Enable Voice", 
+                value=st.session_state.voice_enabled,
+                disabled=True  # Always disabled for cloud
+            )
+            st.session_state.voice_enabled = False  # Force disabled
         
         # Web Search
         st.subheader("🌐 Web Search")
-        web_search_available = st.session_state.get('chatbot', None) and st.session_state.chatbot.web_searcher.is_available()
+        web_search_available = (st.session_state.get('chatbot', None) and 
+                               st.session_state.chatbot.web_searcher and 
+                               st.session_state.chatbot.web_searcher.is_available())
         web_search_enabled = st.checkbox(
             "Enable Web Search", 
             value=st.session_state.web_search_enabled,
@@ -218,27 +307,30 @@ def setup_sidebar() -> Dict[str, Any]:
             help="Upload medical documents to enhance the AI's knowledge"
         )
         
-        if uploaded_file:
-            is_valid, message = FileHandler.validate_file(uploaded_file)
-            if is_valid:
-                if st.button("📚 Process Document"):
-                    with st.spinner("Processing document..."):
-                        file_path = FileHandler.save_uploaded_file(uploaded_file)
-                        if file_path:
-                            success = st.session_state.chatbot.process_document(file_path)
-                            if success:
-                                st.session_state.vector_db_initialized = True
-                            # Clean up temporary file
-                            try:
-                                os.remove(file_path)
-                            except:
-                                pass
-            else:
-                st.error(message)
+        if uploaded_file and st.session_state.get('chatbot'):
+            try:
+                is_valid, message = FileHandler.validate_file(uploaded_file)
+                if is_valid:
+                    if st.button("📚 Process Document"):
+                        with st.spinner("Processing document..."):
+                            file_path = FileHandler.save_uploaded_file(uploaded_file)
+                            if file_path:
+                                success = st.session_state.chatbot.process_document(file_path)
+                                if success:
+                                    st.session_state.vector_db_initialized = True
+                                # Clean up temporary file
+                                try:
+                                    os.remove(file_path)
+                                except:
+                                    pass
+                else:
+                    st.error(message)
+            except Exception as e:
+                st.error(f"File handling error: {e}")
         
         # Load existing database
         if st.button("📖 Load Existing Knowledge Base"):
-            if st.session_state.chatbot.initialize_rag_system():
+            if st.session_state.get('chatbot') and st.session_state.chatbot.initialize_rag_system():
                 st.session_state.vector_db_initialized = True
                 st.success("✅ Knowledge base loaded!")
             else:
@@ -250,11 +342,17 @@ def setup_sidebar() -> Dict[str, Any]:
         st.subheader("📊 System Status")
         
         # RAG Status
-        if st.session_state.vector_db_initialized:
-            stats = st.session_state.chatbot.rag_retriever.get_database_stats()
-            st.success(f"📚 Knowledge Base: {stats['total_chunks']} chunks")
-            if stats['sources']:
-                st.info(f"📁 Sources: {', '.join(stats['sources'][:3])}{'...' if len(stats['sources']) > 3 else ''}")
+        if st.session_state.vector_db_initialized and st.session_state.get('chatbot'):
+            try:
+                if st.session_state.chatbot.rag_retriever:
+                    stats = st.session_state.chatbot.rag_retriever.get_database_stats()
+                    st.success(f"📚 Knowledge Base: {stats['total_chunks']} chunks")
+                    if stats['sources']:
+                        st.info(f"📁 Sources: {', '.join(stats['sources'][:3])}{'...' if len(stats['sources']) > 3 else ''}")
+                else:
+                    st.warning("📚 Knowledge Base: Not available")
+            except Exception as e:
+                st.warning(f"📚 Knowledge Base: Error reading stats - {e}")
         else:
             st.warning("📚 Knowledge Base: Not loaded")
         
@@ -264,9 +362,8 @@ def setup_sidebar() -> Dict[str, Any]:
         else:
             st.error("🤖 AI: Not available")
         
-        # Voice Status
-        voice_status = "✅ Ready" if voice_enabled else "❌ Disabled"
-        st.info(f"🎤 Voice: {voice_status}")
+        # Voice Status - Always disabled for cloud
+        st.info("🎤 Voice: Disabled (Cloud deployment)")
         
         # Web Search Status
         search_status = "✅ Enabled" if st.session_state.web_search_enabled else "❌ Disabled"
@@ -285,18 +382,21 @@ def setup_sidebar() -> Dict[str, Any]:
         
         with col2:
             if st.button("💾 Export", use_container_width=True):
-                export_text = SessionManager.export_conversation()
-                st.download_button(
-                    "📥 Download",
-                    export_text,
-                    file_name=f"medical_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
-                    mime="text/plain"
-                )
+                try:
+                    export_text = SessionManager.export_conversation()
+                    st.download_button(
+                        "📥 Download",
+                        export_text,
+                        file_name=f"medical_chat_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                        mime="text/plain"
+                    )
+                except Exception as e:
+                    st.error(f"Export error: {e}")
         
         return {
             'provider': st.session_state.selected_provider,
             'response_mode': response_mode,
-            'voice_enabled': voice_enabled,
+            'voice_enabled': False,  # Always False for cloud
             'web_search_enabled': st.session_state.web_search_enabled
         }
 
@@ -304,6 +404,9 @@ def instructions_page():
     """Instructions and setup page"""
     st.title("🏥 Medical Voice Assistant - Setup Guide")
     st.markdown("### AI-Powered Medical Consultation with Voice, RAG, and Web Search")
+    
+    # Cloud deployment notice
+    st.info("📢 **Cloud Deployment Notice**: Voice features are disabled in this cloud deployment for compatibility. Text-based interaction is fully available.")
     
     # Quick Start
     st.markdown("## 🚀 Quick Start")
@@ -326,7 +429,7 @@ def instructions_page():
     with col3:
         st.markdown("""
         **3. Start Chatting** 💬
-        - Text or voice input
+        - Text input available
         - AI-powered responses
         """)
     
@@ -380,7 +483,9 @@ def instructions_page():
     
     with tab3:
         st.markdown("""
-        ### Voice Assistant
+        ### Voice Assistant (Local Deployment Only)
+        
+        **Note:** Voice features are disabled in cloud deployments for compatibility.
         
         **Input Features:**
         - Speech-to-text conversion
@@ -469,8 +574,8 @@ def instructions_page():
         - 🧠 Vector Database (Sentence Transformers)
         - 🔍 Similarity Search (Cosine)
         - 🤖 Multiple LLM Support
-        - 🎤 Speech Recognition (Google API)
-        - 🔊 Text-to-Speech (pyttsx3)
+        - 🎤 Speech Recognition (Local only)
+        - 🔊 Text-to-Speech (Local only)
         - 🌐 Web Search (Brave API)
         """)
     
@@ -483,7 +588,7 @@ def instructions_page():
         4. Query processing
         5. Context retrieval
         6. Response generation
-        7. Voice synthesis (optional)
+        7. Voice synthesis (local only)
         """)
     
     # Troubleshooting
@@ -501,11 +606,10 @@ def instructions_page():
         - Ensure files contain readable text
         - Verify file size < 10MB
         
-        **Voice Recognition Problems:**
-        - Grant microphone permissions
-        - Speak clearly in quiet environment
-        - Check internet connectivity
-        - Try different browsers
+        **Cloud Deployment Issues:**
+        - Voice features are disabled by design
+        - Ensure all dependencies are in requirements.txt
+        - Check Streamlit Cloud logs for errors
         
         **Performance Issues:**
         - Large documents take time to process
@@ -532,8 +636,8 @@ def instructions_page():
     ### For Optimal Performance
     - Use high-quality, text-based documents
     - Organize documents by medical specialty
-    - Test voice features in quiet environments
     - Keep documents updated and relevant
+    - Monitor cloud deployment resource usage
     """)
     
     st.markdown("---")
@@ -559,44 +663,9 @@ def chat_page():
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
-            
-            # Add voice controls for assistant messages
-            if message["role"] == "assistant" and config_dict['voice_enabled']:
-                col1, col2, col3 = st.columns([1, 1, 6])
-                
-                with col1:
-                    if st.button("🔊", key=f"speak_{hash(message['content'])}", help="Read aloud"):
-                        st.session_state.chatbot.voice_assistant.speak(message["content"])
-                
-                with col2:
-                    if st.button("⏸️", key=f"stop_{hash(message['content'])}", help="Stop speaking"):
-                        if st.session_state.chatbot.voice_assistant.stop_speaking():
-                            st.success("🔇 Voice stopped", icon="✅")
     
-    # Voice input interface
-    if config_dict['voice_enabled']:
-        col1, col2, col3 = st.columns([6, 1, 1])
-        
-        with col1:
-            prompt = st.chat_input("Type your medical question or use voice...")
-        
-        with col2:
-            if st.button("🎤", help="Voice input", key="voice_input"):
-                with st.spinner("🎤 Listening..."):
-                    voice_text = st.session_state.chatbot.voice_assistant.listen_once()
-                
-                if voice_text:
-                    st.success(f"🎤 You said: '{voice_text}'")
-                    process_user_input(voice_text, config_dict)
-                    st.rerun()
-        
-        with col3:
-            if st.button("⏹️", help="Stop all voice", key="stop_all_voice"):
-                st.session_state.chatbot.voice_assistant.stop_speaking()
-                st.success("🔇 All voice stopped")
-    
-    else:
-        prompt = st.chat_input("Type your medical question here...")
+    # Text input only for cloud deployment
+    prompt = st.chat_input("Type your medical question here...")
     
     # Process text input
     if prompt:
@@ -668,10 +737,6 @@ def process_user_input(user_input: str, config_dict: Dict[str, Any]):
                 # Add response to session
                 SessionManager.add_message("assistant", response)
                 
-                # Speak response if voice enabled
-                if config_dict['voice_enabled']:
-                    st.session_state.chatbot.voice_assistant.speak(response)
-                
             except Exception as e:
                 error_msg = f"❌ Error generating response: {str(e)}"
                 st.error(error_msg)
@@ -685,14 +750,20 @@ def main():
     # Initialize session
     SessionManager.initialize_session()
     
-    # Initialize chatbot
+    # Initialize chatbot with error handling
     if 'chatbot' not in st.session_state:
         with st.spinner("🤖 Initializing Medical AI Assistant..."):
-            st.session_state.chatbot = MedicalChatbot()
-        
-        # Try to load existing knowledge base
-        if st.session_state.chatbot.initialize_rag_system():
-            st.session_state.vector_db_initialized = True
+            try:
+                st.session_state.chatbot = MedicalChatbot()
+                
+                # Try to load existing knowledge base
+                if st.session_state.chatbot.initialize_rag_system():
+                    st.session_state.vector_db_initialized = True
+                    
+            except Exception as e:
+                st.error(f"Failed to initialize Medical Chatbot: {e}")
+                st.error("Please check your configuration and try refreshing the page.")
+                st.stop()
     
     # Navigation
     with st.sidebar:
